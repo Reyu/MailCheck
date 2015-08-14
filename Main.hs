@@ -1,35 +1,19 @@
 import Network.HaskellNet.IMAP.SSL
 import System.Environment (getArgs)
-
-imapServer :: String
-imapServer = "imap.gmail.com"
-
-imapUsername :: String
-imapUsername = "tim.millican@gmail.com"
-
-imapPassword :: String
-imapPassword = "lepajvaenyzmhgeq"
-
-imapAuthType :: AuthType
-imapAuthType = PLAIN
+import System.Directory (getHomeDirectory)
 
 main :: IO ()
 main = do
     args <- getArgs
-    ic <- connectIMAPSSL imapServer
-    authenticate ic imapAuthType imapUsername imapPassword
-    lboxes <- lsub ic
-    counts <- mapM (unSeen ic) $ selectable lboxes
+    hd <- getHomeDirectory
+    auth <- readFile $ hd ++ "/.mailauth"
+    ic <- connectIMAPSSL . head $ words auth
+    let username = words auth !! 1
+        password = words auth !! 2
+        in authenticate ic PLAIN username password
+    boxes <- lsub ic
+    counts <- mapM (unSeen ic . snd) (filter (notElem Noselect . fst) boxes)
     if length args == 1 && head args == "-v"
     then mapM_ (\x -> putStrLn $ fst x ++ ": " ++ show (snd x)) $ filter (\x -> snd x /= 0) counts
-    else print (sum $ map snd counts)
-    where
-        selectable = map snd . filter (notElem Noselect . fst)
-        unSeen ic box = do
-            select ic box
-            a <- search ic [NOTs (FLAG Seen)]
-            return (box, length a)
-
-getCount ic box = do
-        count <- status ic box [MESSAGES]
-        return (box, count)
+    else print . sum $ map snd counts
+    where unSeen ic box = select ic box >> search ic [NOTs (FLAG Seen)] >>= \a -> return (box, length a)
